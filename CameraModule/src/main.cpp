@@ -4,6 +4,7 @@
 
 #define XPOWERS_CHIP_AXP2101
 #include "XPowersLib.h"
+#include "screen.h"
 
 // #include <HttpClient.h>
 // #include <WiFi.h>
@@ -39,28 +40,50 @@
 #define I2C_SLAVE_ADDR 0x42
 volatile bool highSignalReceived = false;
 
-void initPowerChip();
+// void initPowerChip();
 void configCamera();
 void initCamera();
 sensor_t *captureImage();
 void displayImage();
+void generateImage();
+
+#define IMAGE_SIZE 200
+
+uint8_t image[IMAGE_SIZE][IMAGE_SIZE];
+bool imageReady = false;
 
 void receiveEvent(int numBytes)
 {
+  // waits for high signal from Swing Detector
   while (Wire.available())
   {
     byte signal = Wire.read();
-    if (signal == 0x01)
+    if (signal == 0x01) // if high signal
     {
-      highSignalReceived = true;
+      generateImage();
+      imageReady = true;
     }
+  }
+}
+
+void requestEvent() {
+  static int currentRow = 0;
+  if (imageReady == true) {
+    Wire.write(image[currentRow], IMAGE_SIZE);
+    currentRow = (currentRow + 1) % IMAGE_SIZE;
+    if (currentRow == 0) {
+      imageReady = false;
+    }
+  }
+  else {
+    Wire.write(0); // could this lead to issues with Swing Detector thinking this is a pixel?
   }
 }
 
 camera_config_t config;
 XPowersPMU PMU;
 
-sensor_t *image;
+sensor_t *cameraImage;
 
 void setup()
 {
@@ -70,11 +93,26 @@ void setup()
   // Wire.onReceive(receiveEvent);
   Serial.begin(9600);
 
-  configCamera();
+  esp_log_level_set("*", ESP_LOG_VERBOSE);
 
-  initCamera();
+  delay(5000);
 
-  image = captureImage();  
+  // initPowerChip();
+  // Serial.println("Initialized Power Chip");
+
+  // configCamera();
+  // Serial.println("Configured Camera");
+
+  // initCamera();
+
+  // Serial.println("Initialized Camera");
+
+  Wire.begin(I2C_SLAVE_ADDR);
+  Wire.onReceive(receiveEvent);
+  Wire.onRequest(requestEvent);
+
+  // image = captureImage(); 
+  setupScreen(true); 
 }
 
 void loop()
@@ -87,38 +125,47 @@ void loop()
   //   captureImage();
   // }
   Serial.println("Hi");
-
   // display image
-  displayImage();
-  delay(10000);
+  // displayImage();
+  delay(1000);
 }
 
-void initPowerChip()
-{
-  // turns on camera power channel
-  if (!PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, I2C_SDA, I2C_SCL))
-  {
-    Serial.println("Failed to initialize power.....");
-    delay(5000);
+// void initPowerChip()
+// {
+//   // turns on camera power channel
+//   if (!PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, I2C_SDA, I2C_SCL))
+//   {
+//     Serial.println("Failed to initialize power.....");
+//     delay(5000);
+//   }
+
+//   // set working voltage of camera
+//   PMU.setALDO1Voltage(1800);
+//   PMU.enableALDO1();
+//   PMU.setALDO2Voltage(2800);
+//   PMU.enableALDO2();
+//   PMU.setALDO4Voltage(3000);
+//   PMU.enableALDO4();
+
+//   PMU.disableTSPinMeasure();
+// }
+
+void generateImage() {
+  // camera module cannot be configured, so in the spirit of the project,
+  // we generate a 200x200 image of random pixels
+  for (int i=0; i<IMAGE_SIZE; i++) {
+    for (int j=0; j<IMAGE_SIZE; j++) {
+      image[i][j] = random(1, 256);
+    }
   }
-
-  // set working voltage of camera
-  PMU.setALDO1Voltage(1800);
-  PMU.enableALDO1();
-  PMU.setALDO2Voltage(2800);
-  PMU.enableALDO2();
-  PMU.setALDO4Voltage(3000);
-  PMU.enableALDO4();
-
-  PMU.disableTSPinMeasure();
 }
 
 void configCamera()
 {
   // CODE OBTAINED FROM EXAMPLE CODE: https://github.com/Xinyuan-LilyGO/LilyGo-Cam-ESP32S3/blob/master/examples/MinimalCameraExample/MinimalCameraExample.ino
   camera_config_t config;
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
+  // config.ledc_channel = LEDC_CHANNEL_0;
+  // config.ledc_timer = LEDC_TIMER_0;
   config.pin_d0 = DATA2_PIN;
   config.pin_d1 = DATA3_PIN;
   config.pin_d2 = DATA4_PIN;
@@ -131,8 +178,8 @@ void configCamera()
   config.pin_pclk = PCLK_PIN;
   config.pin_vsync = VSYNC_PIN;
   config.pin_href = HREF_PIN;
-  config.pin_sscb_sda = SIOD_PIN;
-  config.pin_sscb_scl = SIOC_PIN;
+  config.pin_sccb_sda = SIOD_PIN;
+  config.pin_sccb_scl = SIOC_PIN;
   config.pin_pwdn = PWDN_PIN;
   config.pin_reset = RESET_PIN;
   config.xclk_freq_hz = 20000000;
@@ -156,7 +203,7 @@ void configCamera()
     {
       // Limit the frame size when PSRAM is not available
       config.frame_size = FRAMESIZE_SVGA;
-      config.fb_location = CAMERA_FB_IN_DRAM;
+      config.fb_location = CAMERA_FB_IN_PSRAM;
     }
   }
   else
@@ -168,14 +215,14 @@ void configCamera()
 
 void initCamera()
 {
+  
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
   {
     Serial.printf("Camera init failed with error 0x%x Please check if the camera is connected well.", err);
-    while (1)
-    {
-      delay(5000);
-    }
+  }
+  else {
+    Serial.println("Camera init was successful");
   }
 }
 
@@ -195,9 +242,11 @@ sensor_t *captureImage()
     s->set_framesize(s, FRAMESIZE_QVGA);
   }
 
+  Serial.println("Took picture somewhere I think");
+
   return s;
 }
 
 void displayImage() {
-  
+
 }
