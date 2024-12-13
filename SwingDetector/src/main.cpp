@@ -11,6 +11,14 @@ LSM6DSO imu;
 #define BUTTON_PIN 33
 #define LED_PIN 25
 
+#define SDA_1 21
+#define SCL_1 22
+
+#define SDA_2 15
+#define SCL_2 13
+
+TwoWire I2C_BUS_2 = TwoWire(1);
+
 #define I2C_SLAVE_ADDR 0x42
 
 // put function declarations here:
@@ -23,6 +31,12 @@ bool button_pressed;
 bool swing_detected;
 int swing_count;
 float threshold;
+
+#define IMAGE_SIZE 200
+void send_signal_to_camera();
+void get_image();
+
+uint8_t image[IMAGE_SIZE][IMAGE_SIZE];
 
 float get_speed(float dx, float dy, float dz)
 {
@@ -83,7 +97,9 @@ void calibrate_imu()
 void setup() {
   Serial.begin(9600);
   delay(3000);
-  Wire.begin(); // set up I2C
+  Wire.begin(); // set up I2C to read IMU data
+
+  I2C_BUS_2.begin(SDA_2, SCL_2); // set up I2C to send data to Camera Module
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
@@ -103,13 +119,6 @@ void setup() {
   else {
     Serial.println("Could not connect to IMU");
   }
-}
-
-void capture_image() {
-  /*
-  Captures an image on the camera module
-  (current: Fujifilm X-T5)
-  */
 }
 
 void loop() {
@@ -138,7 +147,7 @@ void loop() {
   }
 
   if (!swing_detected && mapped_speed > threshold) {
-    capture_image();
+    // capture_image();
     swing_detected = true;
     swing_count ++;
 
@@ -149,13 +158,33 @@ void loop() {
     Serial.println(button_pressed);
 
     // send high signal to camera ESP
-    Wire.beginTransmission(I2C_SLAVE_ADDR);
-    Wire.write(0x01);
-    Wire.endTransmission();
+    send_signal_to_camera();
+    delay(1000);
+    get_image();
+
+    // send image data to bluetooth
   }
   if (mapped_speed < threshold) {
     swing_detected = false;
   }
 
   delay(READ_DELAY_MS);
+}
+
+void send_signal_to_camera() {
+  Wire.beginTransmission(I2C_SLAVE_ADDR);
+  Wire.write(0x01);
+  Wire.endTransmission();
+}
+
+void get_image() {
+  for (int i=0; i<IMAGE_SIZE; i++) {
+    Wire.requestFrom(I2C_SLAVE_ADDR, IMAGE_SIZE);
+    int index = 0;
+    while (Wire.available()) {
+      image[i][index++] = Wire.read();
+    }
+    Serial.print("Received row: ");
+    Serial.println(i);
+  }
 }
