@@ -41,8 +41,8 @@ TwoWire I2C_BUS_2 = TwoWire(1);
 int delayMS;
 
 // This example downloads the URL "http://arduino.cc/"
-char ssid[50]; // your network SSID (name)
-char pass[50]; // your network password (use for WPA, or use
+char ssid[50] = "ORBI44"; // your network SSID (name)
+char pass[50] = "freshstreet368"; // your network password (use for WPA, or use
 // as key for WEP)
 // Name of the server we want to connect to
 const char kHostname[] = AWS_IP_ADDRESS;
@@ -225,7 +225,7 @@ void setup()
 
   // setup_bluetooth();
 
-  nvs_access();
+  // nvs_access();
   delay(1000);
   setup_wifi();
 
@@ -382,18 +382,24 @@ void get_image2()
 
 
 
-String encode_image() {
-  uint8_t *raw_data = &image[0][0];
-  size_t data_size = IMAGE_SIZE * IMAGE_SIZE;
+String encode_image_to_hex() {
+  String hexString = "";
+  for (int i=0; i<IMAGE_SIZE; i++) {
+    for (int j=0; j<IMAGE_SIZE; j++) {
+      char hexByte[3];
+      sprintf(hexByte, "%02X", image[i][j]);
 
-  String encoded_image = base64::encode(raw_data, data_size);
-  return encoded_image;
+      hexString += hexByte;
+    }
+  }
+
+  return hexString;
 }
 
 void send_image_wifi()
 {
   // sends a base64-encoded image
-  String encoded_image = encode_image();
+  String encoded_image = encode_image_to_hex();
 
   WiFiClient client;
   HTTPClient http;
